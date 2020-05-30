@@ -34,6 +34,28 @@ def random_tasks(seed, processors_count, count, usage, time_skip, duration):
         time+=time_skip.random()
     return result
 
+def plot_durations(plt, tasks, processors_count, colors):
+    for processor in range(processors_count):
+        X=[]
+        Y=[]
+        for task in tasks:
+            if task.processor!=processor:
+                continue
+
+            # start of the line
+            X.append(task.time)
+            Y.append(task.processor)
+
+            # end of the line
+            X.append(task.time+task.duration)
+            Y.append(task.processor)
+            
+            # hole between lines
+            X.append(float("NaN"))
+            Y.append(float("NaN"))
+        plt.plot(X, Y, c=colors[processor])
+        
+
 def plot_tasks(plt, tasks, processors_count):
     X=[task.time for task in tasks]
     Y=[task.processor for task in tasks]
@@ -43,6 +65,9 @@ def plot_tasks(plt, tasks, processors_count):
     random.shuffle(processors_colors)
     colors=[processors_colors[task.processor] for task in tasks]
     plt.scatter(X, Y, c=colors, s=sizes)
+    plot_durations(plt, tasks, processors_count, processors_colors)
+    plt.set_xlabel("time")
+    plt.set_ylabel("processors tasks")
 
 @dataclass
 class Processor(object):
@@ -148,6 +173,8 @@ class Policy(object):
             Y=[index*(1+offset)+element[1] for element in process_plot]
             color=processors_colors[index]
             plt.plot(X, Y, '-', c=color)
+            plt.set_xlabel("time")
+            plt.set_ylabel("processors usage")
 
 class FirstPolicy(Policy):
     def __init__(self, processors_count, tasks, threshold, tries, allow_self_check=False):
