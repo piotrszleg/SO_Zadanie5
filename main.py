@@ -3,6 +3,7 @@ import random
 import matplotlib.pyplot as plt
 import colorsys
 from enum import Enum, auto
+from operator import attrgetter
 
 @dataclass
 class Task(object):
@@ -93,7 +94,7 @@ class Processor(object):
         self.tasks=new_tasks
 
 class Policy(object):
-    def __init__(self, processors_count, tasks):
+    def __init__(self, processors_count, tasks, name=None):
         if processors_count<=0:
             raise ValueError("processes_count needs to be greater than 0")
         self.processors=[Processor([]) for _ in range(processors_count)]
@@ -101,6 +102,10 @@ class Policy(object):
         self.time=0
         self.usages=[]
         self.plot_list=[[] for _ in range(processors_count)]
+        if name!=None:
+            self.name=name
+        else:
+            self.name=self.__class__.__name__
 
     # spliting the assigning process into two functions ensures
     # that only one processor becomes assigned to the task
@@ -133,7 +138,7 @@ class Policy(object):
         return sum
 
     def summary(self):
-        print(self.__class__.__name__)
+        print(self.name)
         average_usage=self.average_usage()
         average_deviation=self.average_deviation(average_usage)
         print(f"average usage:\t\t{round(average_usage, 4)}")
@@ -178,10 +183,11 @@ class Policy(object):
             plt.plot(X, Y, '-', c=color)
             plt.set_xlabel("time")
             plt.set_ylabel("processors usage")
+            plt.set_title(self.name)
 
 class FirstPolicy(Policy):
-    def __init__(self, processors_count, tasks, threshold, tries, allow_self_check=False):
-        super().__init__(processors_count, tasks)
+    def __init__(self, processors_count, tasks, threshold, tries, allow_self_check=False, name=None):
+        super().__init__(processors_count, tasks, name=name)
         self.threshold=threshold
         self.tries=tries
         self.allow_self_check=allow_self_check
@@ -210,8 +216,8 @@ class OnFindingFailure:
     MIN_USAGE=auto()
                 
 class SecondPolicy(Policy):
-    def __init__(self, processors_count, tasks, threshold, allow_self_check=False, on_finding_failure=OnFindingFailure.MIN_USAGE):
-        super().__init__(processors_count, tasks)
+    def __init__(self, processors_count, tasks, threshold, allow_self_check=False, on_finding_failure=OnFindingFailure.MIN_USAGE, name=None):
+        super().__init__(processors_count, tasks, name=name)
         self.threshold=threshold
         self.allow_self_check=allow_self_check
         self.on_finding_failure=on_finding_failure
@@ -245,21 +251,37 @@ class SecondPolicy(Policy):
         else:
             raise ValueError("Incorrect enum value")
 
+class MovedType:
+    COUNT=auto()
+    USAGE=auto()
+
 class ThirdPolicy(SecondPolicy):
-    def __init__(self, processors_count, tasks, threshold, transfer_treshold, moved, allow_self_check=False):
-        super().__init__(processors_count, tasks, threshold, allow_self_check)
+    def __init__(self, processors_count, tasks, threshold, transfer_treshold, moved, moved_type=MovedType.COUNT, allow_self_check=False, name=None):
+        super().__init__(processors_count, tasks, threshold=threshold, allow_self_check=allow_self_check, name=name)
         self.transfer_treshold=transfer_treshold
         self.moved=moved
+        self.moved_type=moved_type
         self.migrations=0
 
     def transfer_tasks(self, source, destination):
-        # self.moved is percentage of tasks moved from source to destination
-        moved=int(len(source.tasks)*self.moved)
-        tasks=source.tasks
-        destination.tasks=tasks[moved:]
-        rest=len(tasks)-moved
-        source.tasks=tasks[:rest]
-        self.migrations+=moved
+        if self.moved_type==MovedType.COUNT:
+            # self.moved is percentage of tasks moved from source to destination
+            moved=int(len(source.tasks)*self.moved)
+            tasks=source.tasks
+            destination.tasks=tasks[moved:]
+            rest=len(tasks)-moved
+            source.tasks=tasks[:rest]
+            self.migrations+=moved
+        elif self.moved_type==MovedType.USAGE:
+            tasks=source.tasks.copy()
+            tasks.sort(key=attrgetter("usage"))
+            to_move=source.usage*self.moved
+            while to_move>0:
+                task=tasks.pop(0)
+                source.tasks.remove(task)
+                destination.tasks.append(task)
+                self.migrations+=1
+                to_move-=task.usage
 
     def summary(self):
         super().summary()
@@ -273,7 +295,7 @@ class ThirdPolicy(SecondPolicy):
                     self.transfer_tasks(chosen, processor)
         super().update()
 
-fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2)
+fig, ((ax1, ax2, ax3), (ax4, ax5, ax6)) = plt.subplots(2, 3)
 
 PROCESSORS_COUNT=20
 tasks=random_tasks(123, PROCESSORS_COUNT, 200, Between(0.01, 1.), Between(1, 5), Between(10, 100))
@@ -281,5 +303,6 @@ plot_tasks(ax1, tasks, PROCESSORS_COUNT)
 FirstPolicy(PROCESSORS_COUNT, tasks, threshold=0.3, tries=3).run().plot(ax2)
 SecondPolicy(PROCESSORS_COUNT, tasks, threshold=0.3).run().plot(ax3)
 ThirdPolicy(PROCESSORS_COUNT, tasks, threshold=0.3, transfer_treshold=0.2, moved=0.5).run().plot(ax4)
+ThirdPolicy(PROCESSORS_COUNT, tasks, threshold=0.3, transfer_treshold=0.2, moved=0.5, moved_type=MovedType.USAGE, name="ThirdPolicy(MovedType.USAGE)").run().plot(ax5)
 
 plt.show()
