@@ -5,18 +5,20 @@ import colorsys
 from enum import Enum, auto
 
 @dataclass
-class task(object):
+class Task(object):
     processor:int
     time:int
     usage:float
     duration:int
     def copy(self):
-        return task(**self.__dict__)
+        return Task(**self.__dict__)
 
-@dataclass
-class between(object):
-    start:object
-    end:object
+class Between(object):
+    def __init__(self, start, end):
+        if start.__class__!=end.__class__:
+            raise ValueError("Start and end need to be of the same type")
+        self.start=start
+        self.end=end
     @property
     def length(self):
         return self.end-self.start
@@ -30,7 +32,7 @@ def random_tasks(seed, processors_count, count, usage, time_skip, duration):
     time=0
     result=[]
     for _ in range(count):
-        result.append(task(random.randrange(0, processors_count), time, usage.random(), duration.random()))
+        result.append(Task(random.randrange(0, processors_count), time, usage.random(), duration.random()))
         time+=time_skip.random()
     return result
 
@@ -72,12 +74,12 @@ def plot_tasks(plt, tasks, processors_count):
 @dataclass
 class Processor(object):
     tasks:list
-    usage_asks:int=0
+    usage_queries:int=0
     def add_task(self, task):
         self.tasks.append(task.copy())
     @property
     def usage(self):
-        self.usage_asks+=1
+        self.usage_queries+=1
         usage=0
         for task in self.tasks:
             usage+=task.usage
@@ -124,18 +126,19 @@ class Policy(object):
             sum+=abs(usage-average)
         return sum/len(self.usages)
 
-    def usage_asks(self):
+    def usage_queries(self):
         sum=0
         for processor in self.processors:
-            sum+=processor.usage_asks
+            sum+=processor.usage_queries
         return sum
 
     def summary(self):
         print(self.__class__.__name__)
         average_usage=self.average_usage()
-        print(f"average usage: {average_usage}")
-        print(f"average deviation: {self.average_deviation(average_usage)}")
-        print(f"usage asks: {self.usage_asks()}")
+        average_deviation=self.average_deviation(average_usage)
+        print(f"average usage:\t\t{round(average_usage, 4)}")
+        print(f"average deviation:\t{round(average_deviation, 4)}")
+        print(f"usage queries:\t\t{round(self.usage_queries(), 4)}")
 
     def update_plot(self):
         for processor_plot, processor in zip(self.plot_list, self.processors):
@@ -260,7 +263,7 @@ class ThirdPolicy(SecondPolicy):
 
     def summary(self):
         super().summary()
-        print(f"migrations: {self.migrations}")
+        print(f"migrations:\t\t{self.migrations}")
 
     def update(self):
         for processor in self.processors:
@@ -273,7 +276,7 @@ class ThirdPolicy(SecondPolicy):
 fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2)
 
 PROCESSORS_COUNT=20
-tasks=random_tasks(123, PROCESSORS_COUNT, 200, between(0.01, 1), between(1, 5), between(10, 100))
+tasks=random_tasks(123, PROCESSORS_COUNT, 200, Between(0.01, 1.), Between(1, 5), Between(10, 100))
 plot_tasks(ax1, tasks, PROCESSORS_COUNT)
 FirstPolicy(PROCESSORS_COUNT, tasks, threshold=0.3, tries=3).run().plot(ax2)
 SecondPolicy(PROCESSORS_COUNT, tasks, threshold=0.3).run().plot(ax3)
