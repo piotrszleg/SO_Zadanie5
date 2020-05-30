@@ -2,6 +2,7 @@ from dataclasses import dataclass
 import random
 import matplotlib.pyplot as plt
 import colorsys
+from enum import Enum, auto
 
 @dataclass
 class task(object):
@@ -67,6 +68,8 @@ class Processor(object):
 
 class Policy(object):
     def __init__(self, processors_count, tasks):
+        if processors_count<=0:
+            raise ValueError("processes_count needs to be greater than 0")
         self.processors=[Processor([]) for _ in range(processors_count)]
         self.tasks=tasks.copy()
         self.time=0
@@ -128,16 +131,17 @@ class Policy(object):
         self.summary()
 
 class FirstPolicy(Policy):
-    def __init__(self, processors_count, tasks, threshold, tries):
+    def __init__(self, processors_count, tasks, threshold, tries, allow_self_check=False):
         super().__init__(processors_count, tasks)
         self.threshold=threshold
         self.tries=tries
+        self.allow_self_check=allow_self_check
 
     def select_processor(self, task):
         processors=self.processors.copy()
-        # don't allow task.processor to be checked
-        # TODO: ask if it's valid
-        del processors[task.processor]
+        if not self.allow_self_check:
+            # don't allow task.processor to be checked
+            del processors[task.processor]
         for _ in range(self.tries):
             if len(processors)==0:
                 # no more processors to check
@@ -150,32 +154,51 @@ class FirstPolicy(Policy):
                 processors.remove(processor)
         # finding other processor failed, assign to processor where it ocurred
         return self.processors[task.processor]
+
+class OnFindingFailure:
+    TASK=auto()
+    LAST=auto()
+    MIN_USAGE=auto()
                 
 class SecondPolicy(Policy):
-    def __init__(self, processors_count, tasks, threshold):
+    def __init__(self, processors_count, tasks, threshold, allow_self_check=False, on_finding_failure=OnFindingFailure.MIN_USAGE):
         super().__init__(processors_count, tasks)
         self.threshold=threshold
+        self.allow_self_check=allow_self_check
+        self.on_finding_failure=on_finding_failure
 
     def select_processor(self, task):
         if self.processors[task.processor].usage<self.threshold:
             return self.processors[task.processor]
+
+        min_usage=(self.processors[task.processor], self.processors[task.processor].usage)
         
         processors=self.processors.copy()
-         # don't allow task.processor to be check
-        del processors[task.processor]
+        if not self.allow_self_check:
+            # don't allow task.processor to be checked
+            del processors[task.processor]
         
         while len(processors)>0:
             processor=random.choice(processors)
-            if processor.usage<self.threshold:
+            usage=processor.usage
+            if usage<min_usage[1]:
+                min_usage=(processor, usage)
+            if usage<self.threshold:
                 return processor
             else:
                 processors.remove(processor)
-        # TODO: ask if it should be task.processor or last_processor
-        return processor
+        if self.on_finding_failure==OnFindingFailure.TASK:
+            return self.processors[task.processor]
+        elif self.on_finding_failure==OnFindingFailure.LAST:
+            return processor
+        elif self.on_finding_failure==OnFindingFailure.MIN_USAGE:
+            return min_usage[0]
+        else:
+            raise ValueError("Incorrect enum value")
 
 class ThirdPolicy(SecondPolicy):
-    def __init__(self, processors_count, tasks, threshold, transfer_treshold, moved):
-        super().__init__(processors_count, tasks, threshold)
+    def __init__(self, processors_count, tasks, threshold, transfer_treshold, moved, allow_self_check=False):
+        super().__init__(processors_count, tasks, threshold, allow_self_check)
         self.transfer_treshold=transfer_treshold
         self.moved=moved
         self.migrations=0
