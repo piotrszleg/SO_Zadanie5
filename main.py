@@ -72,8 +72,13 @@ class Policy(object):
         self.time=0
         self.usages=[]
 
-    def assign_task(self, task):
+    # spliting the assigning process into two functions ensures
+    # that only one processor becomes assigned to the task
+    def select_processor(self, task):
         raise NotImplementedError()
+
+    def assign_task(self, task):
+        self.select_processor(task).add_task(task)
 
     def update_usages(self):
         for processor in self.processors:
@@ -123,39 +128,37 @@ class Policy(object):
         self.summary()
 
 class FirstPolicy(Policy):
-    def __init__(self, processors_count, tasks, threshold, checked):
+    def __init__(self, processors_count, tasks, threshold, tries):
         super().__init__(processors_count, tasks)
         self.threshold=threshold
-        self.checked=checked
+        self.tries=tries
 
-    def assign_task(self, task):
+    def select_processor(self, task):
         processors=self.processors.copy()
-        # don't allow task.processor to be check
+        # don't allow task.processor to be checked
         # TODO: ask if it's valid
         del processors[task.processor]
-        for _ in range(self.checked):
+        for _ in range(self.tries):
             if len(processors)==0:
                 # no more processors to check
                 break
             processor=random.choice(processors)
             if processor.usage<self.threshold:
                 # found a processor
-                processor.add_task(task)
-                return
+                return processor
             else:
                 processors.remove(processor)
         # finding other processor failed, assign to processor where it ocurred
-        self.processors[task.processor].add_task(task)
+        return self.processors[task.processor]
                 
 class SecondPolicy(Policy):
     def __init__(self, processors_count, tasks, threshold):
         super().__init__(processors_count, tasks)
         self.threshold=threshold
 
-    def assign_task(self, task):
+    def select_processor(self, task):
         if self.processors[task.processor].usage<self.threshold:
-            self.processors[task.processor].add_task(task)
-            return
+            return self.processors[task.processor]
         
         processors=self.processors.copy()
          # don't allow task.processor to be check
@@ -164,17 +167,16 @@ class SecondPolicy(Policy):
         while len(processors)>0:
             processor=random.choice(processors)
             if processor.usage<self.threshold:
-                processor.add_task(task)
-                return
+                return processor
             else:
                 processors.remove(processor)
         # TODO: ask if it should be task.processor or last_processor
-        processor.add_task(task)
+        return processor
 
 class ThirdPolicy(SecondPolicy):
-    def __init__(self, processors_count, tasks, threshold, minimal_threshold, moved):
+    def __init__(self, processors_count, tasks, threshold, transfer_treshold, moved):
         super().__init__(processors_count, tasks, threshold)
-        self.minimal_threshold=minimal_threshold
+        self.transfer_treshold=transfer_treshold
         self.moved=moved
         self.migrations=0
 
@@ -192,7 +194,7 @@ class ThirdPolicy(SecondPolicy):
 
     def update(self):
         for processor in self.processors:
-            if processor.usage<self.minimal_threshold:
+            if processor.usage<self.transfer_treshold:
                 chosen=random.choice(self.processors)
                 if chosen.usage>self.threshold:
                     self.transfer_tasks(chosen, processor)
@@ -200,7 +202,7 @@ class ThirdPolicy(SecondPolicy):
 
 PROCESSORS_COUNT=20
 tasks=random_tasks(123, PROCESSORS_COUNT, 1000, between(0.01, 1), between(1, 5), between(1, 7))
-# plot_tasks(tasks, PROCESSORS_COUNT)
-FirstPolicy(PROCESSORS_COUNT, tasks, 0.3, 3).run()
-SecondPolicy(PROCESSORS_COUNT, tasks, 0.3).run()
-ThirdPolicy(PROCESSORS_COUNT, tasks, 0.3, 0.2, 0.5).run()
+plot_tasks(tasks, PROCESSORS_COUNT)
+FirstPolicy(PROCESSORS_COUNT, tasks, threshold=0.3, tries=3).run()
+SecondPolicy(PROCESSORS_COUNT, tasks, threshold=0.3).run()
+ThirdPolicy(PROCESSORS_COUNT, tasks, threshold=0.3, transfer_treshold=0.2, moved=0.5).run()
