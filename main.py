@@ -129,16 +129,22 @@ class FirstPolicy(Policy):
         self.checked=checked
 
     def assign_task(self, task):
-        indexes=[i for i in range(len(self.processors))]
+        processors=self.processors.copy()
+        # don't allow task.processor to be check
+        # TODO: ask if it's valid
+        del processors[task.processor]
         for _ in range(self.checked):
-            if len(indexes)==0:
+            if len(processors)==0:
+                # no more processors to check
                 break
-            index=random.choice(indexes)
-            if self.processors[index].usage<self.threshold:
-                self.processors[index].add_task(task)
+            processor=random.choice(processors)
+            if processor.usage<self.threshold:
+                # found a processor
+                processor.add_task(task)
                 return
             else:
-                indexes.remove(index)
+                processors.remove(processor)
+        # finding other processor failed, assign to processor where it ocurred
         self.processors[task.processor].add_task(task)
                 
 class SecondPolicy(Policy):
@@ -149,16 +155,21 @@ class SecondPolicy(Policy):
     def assign_task(self, task):
         if self.processors[task.processor].usage<self.threshold:
             self.processors[task.processor].add_task(task)
-        indexes=[i for i in range(len(self.processors))]
-        index=0
-        while len(indexes)==0:
-            index=random.choice(indexes)
-            if self.processors[index].usage<self.threshold:
-                self.processors[index].add_task(task)
-                break
+            return
+        
+        processors=self.processors.copy()
+         # don't allow task.processor to be check
+        del processors[task.processor]
+        
+        while len(processors)>0:
+            processor=random.choice(processors)
+            if processor.usage<self.threshold:
+                processor.add_task(task)
+                return
             else:
-                indexes.remove(index)
-        self.processors[index].add_task(task)
+                processors.remove(processor)
+        # TODO: ask if it should be task.processor or last_processor
+        processor.add_task(task)
 
 class ThirdPolicy(SecondPolicy):
     def __init__(self, processors_count, tasks, threshold, minimal_threshold, moved):
@@ -189,7 +200,7 @@ class ThirdPolicy(SecondPolicy):
 
 PROCESSORS_COUNT=20
 tasks=random_tasks(123, PROCESSORS_COUNT, 1000, between(0.01, 1), between(1, 5), between(1, 7))
-plot_tasks(tasks, PROCESSORS_COUNT)
+# plot_tasks(tasks, PROCESSORS_COUNT)
 FirstPolicy(PROCESSORS_COUNT, tasks, 0.3, 3).run()
 SecondPolicy(PROCESSORS_COUNT, tasks, 0.3).run()
 ThirdPolicy(PROCESSORS_COUNT, tasks, 0.3, 0.2, 0.5).run()
