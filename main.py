@@ -34,16 +34,15 @@ def random_tasks(seed, processors_count, count, usage, time_skip, duration):
         time+=time_skip.random()
     return result
 
-def plot_tasks(tasks, processors_count):
+def plot_tasks(plt, tasks, processors_count):
     X=[task.time for task in tasks]
     Y=[task.processor for task in tasks]
-    sizes=[task.usage*100 for task in tasks]
+    sizes=[task.usage*2000/processors_count for task in tasks]
     step=1/processors_count
     processors_colors=[colorsys.hls_to_rgb(step*index, 0.8, 1) for index in range(processors_count)]
     random.shuffle(processors_colors)
     colors=[processors_colors[task.processor] for task in tasks]
     plt.scatter(X, Y, c=colors, s=sizes)
-    plt.show()
 
 @dataclass
 class Processor(object):
@@ -57,7 +56,7 @@ class Processor(object):
         usage=0
         for task in self.tasks:
             usage+=task.usage
-        return usage
+        return min(1, usage)
     def update(self):
         new_tasks=[]
         for task in self.tasks:
@@ -74,6 +73,7 @@ class Policy(object):
         self.tasks=tasks.copy()
         self.time=0
         self.usages=[]
+        self.plot_list=[[] for _ in range(processors_count)]
 
     # spliting the assigning process into two functions ensures
     # that only one processor becomes assigned to the task
@@ -112,6 +112,10 @@ class Policy(object):
         print(f"average deviation: {self.average_deviation(average_usage)}")
         print(f"usage asks: {self.usage_asks()}")
 
+    def update_plot(self):
+        for processor_plot, processor in zip(self.plot_list, self.processors):
+            processor_plot.append((self.time, processor.usage))
+
     def update(self):
         for processor in self.processors:
             processor.update()
@@ -123,12 +127,27 @@ class Policy(object):
                 new_tasks.append(task)
         self.tasks=new_tasks
         self.update_usages()
+        self.update_plot()
         self.time+=1
 
     def run(self):
         while len(self.tasks)>0:
             self.update()
         self.summary()
+        return self
+
+    def plot(self, plt):
+        offset=0.5
+        step=1/len(self.processors)
+
+        processors_colors=[colorsys.hls_to_rgb(step*index, 0.8, 1) for index in range(len(self.processors))]
+        random.shuffle(processors_colors)
+
+        for index, process_plot in enumerate(self.plot_list):
+            X=[element[0] for element in process_plot]
+            Y=[index*(1+offset)+element[1] for element in process_plot]
+            color=processors_colors[index]
+            plt.plot(X, Y, '-', c=color)
 
 class FirstPolicy(Policy):
     def __init__(self, processors_count, tasks, threshold, tries, allow_self_check=False):
@@ -204,6 +223,7 @@ class ThirdPolicy(SecondPolicy):
         self.migrations=0
 
     def transfer_tasks(self, source, destination):
+        # self.moved is percentage of tasks moved from source to destination
         moved=int(len(source.tasks)*self.moved)
         tasks=source.tasks
         destination.tasks=tasks[moved:]
@@ -223,9 +243,13 @@ class ThirdPolicy(SecondPolicy):
                     self.transfer_tasks(chosen, processor)
         super().update()
 
+fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2)
+
 PROCESSORS_COUNT=20
-tasks=random_tasks(123, PROCESSORS_COUNT, 1000, between(0.01, 1), between(1, 5), between(1, 7))
-plot_tasks(tasks, PROCESSORS_COUNT)
-FirstPolicy(PROCESSORS_COUNT, tasks, threshold=0.3, tries=3).run()
-SecondPolicy(PROCESSORS_COUNT, tasks, threshold=0.3).run()
-ThirdPolicy(PROCESSORS_COUNT, tasks, threshold=0.3, transfer_treshold=0.2, moved=0.5).run()
+tasks=random_tasks(123, PROCESSORS_COUNT, 200, between(0.01, 1), between(1, 5), between(10, 100))
+plot_tasks(ax1, tasks, PROCESSORS_COUNT)
+FirstPolicy(PROCESSORS_COUNT, tasks, threshold=0.3, tries=3).run().plot(ax2)
+SecondPolicy(PROCESSORS_COUNT, tasks, threshold=0.3).run().plot(ax3)
+ThirdPolicy(PROCESSORS_COUNT, tasks, threshold=0.3, transfer_treshold=0.2, moved=0.5).run().plot(ax4)
+
+plt.show()
