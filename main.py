@@ -11,6 +11,7 @@ class Task(object):
     time:int
     usage:float
     duration:int
+    assigned:int=1
     def copy(self):
         return Task(**self.__dict__)
 
@@ -76,22 +77,41 @@ def plot_tasks(plt, tasks, processors_count):
 class Processor(object):
     tasks:list
     usage_queries:int=0
+    def most_used(self):
+        result=(None, float("infinity"))
+        for task in self.tasks:
+            usage=task.usage
+            if usage<result[1]:
+                result=(task, usage)
+        return result[0]
     def add_task(self, task):
-        self.tasks.append(task.copy())
+        copied=task.copy()
+        available=1-self.usage
+        if available==0:
+            most_used=self.most_used()
+            available=most_used.usage*most_used.assigned/2
+            most_used.assigned/=2
+        needed=copied.usage
+        if available<needed:
+            copied.assigned=available/needed
+        else:
+            copied.assigned=1
+        self.tasks.append(copied)
     @property
     def usage(self):
         self.usage_queries+=1
         usage=0
         for task in self.tasks:
-            usage+=task.usage
+            usage+=task.usage/task.assigned
         return min(1, usage)
     def update(self):
         new_tasks=[]
         for task in self.tasks:
             if task.duration>0:
-                task.duration-=1
+                task.duration-=1/task.assigned
                 new_tasks.append(task)
         self.tasks=new_tasks
+        return len(self.tasks)>0
 
 class Policy(object):
     def __init__(self, processors_count, tasks, name=None):
@@ -144,14 +164,16 @@ class Policy(object):
         print(f"average usage:\t\t{round(average_usage, 4)}")
         print(f"average deviation:\t{round(average_deviation, 4)}")
         print(f"usage queries:\t\t{round(self.usage_queries(), 4)}")
+        print(f"end time:\t\t{round(self.time, 4)}")
 
     def update_plot(self):
         for processor_plot, processor in zip(self.plot_list, self.processors):
             processor_plot.append((self.time, processor.usage))
 
     def update(self):
+        processors_need_updating=False
         for processor in self.processors:
-            processor.update()
+            processors_need_updating=processors_need_updating or processor.update()
         new_tasks=[]
         for task in self.tasks:
             if task.time==self.time:
@@ -162,10 +184,11 @@ class Policy(object):
         self.update_usages()
         self.update_plot()
         self.time+=1
+        return len(self.tasks)>0 or processors_need_updating
 
     def run(self):
-        while len(self.tasks)>0:
-            self.update()
+        while self.update():
+            pass
         self.summary()
         return self
 
@@ -276,7 +299,7 @@ class ThirdPolicy(SecondPolicy):
             tasks=source.tasks.copy()
             tasks.sort(key=attrgetter("usage"))
             to_move=source.usage*self.moved
-            while to_move>0:
+            while to_move>0 and len(tasks)>0:
                 task=tasks.pop(0)
                 source.tasks.remove(task)
                 destination.tasks.append(task)
@@ -293,16 +316,16 @@ class ThirdPolicy(SecondPolicy):
                 chosen=random.choice(self.processors)
                 if chosen.usage>self.threshold:
                     self.transfer_tasks(chosen, processor)
-        super().update()
+        return super().update()
 
 fig, ((ax1, ax2, ax3), (ax4, ax5, ax6)) = plt.subplots(2, 3)
 
 PROCESSORS_COUNT=20
-tasks=random_tasks(123, PROCESSORS_COUNT, 200, Between(0.01, 1.), Between(1, 5), Between(10, 100))
+tasks=random_tasks(123, PROCESSORS_COUNT, 200, Between(0.01, 0.4), Between(1, 5), Between(10, 100))
 plot_tasks(ax1, tasks, PROCESSORS_COUNT)
 FirstPolicy(PROCESSORS_COUNT, tasks, threshold=0.3, tries=3).run().plot(ax2)
 SecondPolicy(PROCESSORS_COUNT, tasks, threshold=0.3).run().plot(ax3)
-ThirdPolicy(PROCESSORS_COUNT, tasks, threshold=0.3, transfer_treshold=0.2, moved=0.5).run().plot(ax4)
+ThirdPolicy(PROCESSORS_COUNT, tasks, threshold=0.3, transfer_treshold=0.2, moved=0.5, name="ThirdPolicy(MovedType.COUNT)").run().plot(ax4)
 ThirdPolicy(PROCESSORS_COUNT, tasks, threshold=0.3, transfer_treshold=0.2, moved=0.5, moved_type=MovedType.USAGE, name="ThirdPolicy(MovedType.USAGE)").run().plot(ax5)
 
 plt.show()
