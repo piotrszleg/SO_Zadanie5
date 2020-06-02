@@ -45,38 +45,37 @@ def plot_durations(plt, tasks, processors_count, colors):
         for task in tasks:
             if task.processor!=processor:
                 continue
-
             # start of the line
             X.append(task.time)
             Y.append(task.processor)
-
             # end of the line
             X.append(task.time+task.duration)
             Y.append(task.processor)
-            
             # hole between lines
             X.append(float("NaN"))
             Y.append(float("NaN"))
         plt.plot(X, Y, c=colors[processor])
         
 
-def plot_tasks(plt, tasks, processors_count):
+def plot_tasks(plt, tasks, processors_count, processors_colors):
     X=[task.time for task in tasks]
     Y=[task.processor for task in tasks]
     sizes=[task.usage*2000/processors_count for task in tasks]
-    step=1/processors_count
-    processors_colors=[colorsys.hls_to_rgb(step*index, 0.8, 1) for index in range(processors_count)]
-    random.shuffle(processors_colors)
     colors=[processors_colors[task.processor] for task in tasks]
     plt.scatter(X, Y, c=colors, s=sizes)
     plot_durations(plt, tasks, processors_count, processors_colors)
     plt.set_xlabel("time")
     plt.set_ylabel("processors tasks")
 
-@dataclass
+class OnUsageExceeded:
+    REJECT=auto()
+    SPLIT=auto()
+
 class Processor(object):
-    tasks:list
-    usage_queries:int=0
+    def __init__(self, tasks, on_usage_exceeded=OnUsageExceeded.SPLIT):
+        self.tasks=tasks
+        self.usage_queries=0
+        self.on_usage_exceeded=on_usage_exceeded
     def most_used(self):
         result=(None, float("infinity"))
         for task in self.tasks:
@@ -84,31 +83,53 @@ class Processor(object):
             if usage<result[1]:
                 result=(task, usage)
         return result[0]
-    def add_task(self, task):
+    def add_task_reject(self, task):
         copied=task.copy()
         available=1-self.usage
-        if available==0:
-            most_used=self.most_used()
-            available=most_used.usage*most_used.assigned/2
-            most_used.assigned/=2
-        needed=copied.usage
-        if available<needed:
-            copied.assigned=available/needed
+        if available>copied.usage:
+            self.tasks.append(copied)
+            return True
         else:
-            copied.assigned=1
+            return False
+    def add_task_split(self, task):
+        copied=task.copy()
+        available=1-self.usage
+        needed=copied.usage
+        if available==0 or available/needed<0.1:
+            most_used=self.most_used()
+            if most_used.assigned/most_used.usage<0.1:
+                return False
+            available=most_used.assigned/2
+            most_used.assigned/=2
+        if available<needed:
+            copied.assigned=available
+        else:
+            copied.assigned=copied.usage
         self.tasks.append(copied)
+        return True
+    def add_task(self, task):
+        if self.on_usage_exceeded==OnUsageExceeded.REJECT:
+            self.add_task_reject(task)
+        elif self.on_usage_exceeded==OnUsageExceeded.SPLIT:
+            self.add_task_split(task)
+        else:
+            raise ValueError("Incorrect enum value")
     @property
     def usage(self):
         self.usage_queries+=1
         usage=0
         for task in self.tasks:
-            usage+=task.usage/task.assigned
+            usage+=task.assigned
         return min(1, usage)
+    def update_task(self, task):
+        if task.assigned<1 and self.usage<1:
+            task.assigned+=max(1-self.usage, task.usage)
+        task.duration-=task.assigned/task.usage
     def update(self):
         new_tasks=[]
         for task in self.tasks:
             if task.duration>0:
-                task.duration-=1/task.assigned
+                self.update_task(task)
                 new_tasks.append(task)
         self.tasks=new_tasks
         return len(self.tasks)>0
@@ -177,7 +198,8 @@ class Policy(object):
         new_tasks=[]
         for task in self.tasks:
             if task.time==self.time:
-                self.assign_task(task)
+                if not self.assign_task(task):
+                    task.time+=1
             else:
                 new_tasks.append(task)
         self.tasks=new_tasks
@@ -192,12 +214,8 @@ class Policy(object):
         self.summary()
         return self
 
-    def plot(self, plt):
+    def plot(self, plt, processors_colors):
         offset=0.5
-        step=1/len(self.processors)
-
-        processors_colors=[colorsys.hls_to_rgb(step*index, 0.8, 1) for index in range(len(self.processors))]
-        random.shuffle(processors_colors)
 
         for index, process_plot in enumerate(self.plot_list):
             X=[element[0] for element in process_plot]
@@ -321,11 +339,14 @@ class ThirdPolicy(SecondPolicy):
 fig, ((ax1, ax2, ax3), (ax4, ax5, ax6)) = plt.subplots(2, 3)
 
 PROCESSORS_COUNT=20
+step=1/PROCESSORS_COUNT
+PROCESSORS_COLORS=[colorsys.hls_to_rgb(step*index, 0.8, 1) for index in range(PROCESSORS_COUNT)]
+random.shuffle(PROCESSORS_COLORS)
 tasks=random_tasks(123, PROCESSORS_COUNT, 200, Between(0.01, 0.4), Between(1, 5), Between(10, 100))
-plot_tasks(ax1, tasks, PROCESSORS_COUNT)
-FirstPolicy(PROCESSORS_COUNT, tasks, threshold=0.3, tries=3).run().plot(ax2)
-SecondPolicy(PROCESSORS_COUNT, tasks, threshold=0.3).run().plot(ax3)
-ThirdPolicy(PROCESSORS_COUNT, tasks, threshold=0.3, transfer_treshold=0.2, moved=0.5, name="ThirdPolicy(MovedType.COUNT)").run().plot(ax4)
-ThirdPolicy(PROCESSORS_COUNT, tasks, threshold=0.3, transfer_treshold=0.2, moved=0.5, moved_type=MovedType.USAGE, name="ThirdPolicy(MovedType.USAGE)").run().plot(ax5)
+plot_tasks(ax1, tasks, PROCESSORS_COUNT, PROCESSORS_COLORS)
+FirstPolicy(PROCESSORS_COUNT, tasks, threshold=0.3, tries=3).run().plot(ax2, PROCESSORS_COLORS)
+SecondPolicy(PROCESSORS_COUNT, tasks, threshold=0.3).run().plot(ax3, PROCESSORS_COLORS)
+ThirdPolicy(PROCESSORS_COUNT, tasks, threshold=0.3, transfer_treshold=0.2, moved=0.5, name="ThirdPolicy(MovedType.COUNT)").run().plot(ax4, PROCESSORS_COLORS)
+ThirdPolicy(PROCESSORS_COUNT, tasks, threshold=0.3, transfer_treshold=0.2, moved=0.5, moved_type=MovedType.USAGE, name="ThirdPolicy(MovedType.USAGE)").run().plot(ax5, PROCESSORS_COLORS)
 
 plt.show()
