@@ -4,37 +4,21 @@ import random
 
 from .second_policy import SecondPolicy
 
-class MovedType:
-    COUNT=auto()
-    USAGE=auto()
-
 class ThirdPolicy(SecondPolicy):
-    def __init__(self, processors_count, tasks, threshold, transfer_treshold, moved, process_arguments=(), moved_type=MovedType.COUNT, allow_self_check=False, name=None):
+    def __init__(self, processors_count, tasks, threshold, transfer_treshold, process_arguments=(), allow_self_check=False, name=None):
         super().__init__(processors_count, tasks, threshold=threshold, allow_self_check=allow_self_check, name=name, process_arguments=process_arguments)
         self.transfer_treshold=transfer_treshold
-        self.moved=moved
-        self.moved_type=moved_type
         self.migrations=0
 
-    def transfer_tasks(self, source, destination):
-        if self.moved_type==MovedType.COUNT:
-            # self.moved is percentage of tasks moved from source to destination
-            moved=int(len(source.tasks)*self.moved)
-            tasks=source.tasks
-            destination.tasks=tasks[moved:]
-            rest=len(tasks)-moved
-            source.tasks=tasks[:rest]
-            self.migrations+=moved
-        elif self.moved_type==MovedType.USAGE:
-            tasks=source.tasks.copy()
-            tasks.sort(key=attrgetter("usage"))
-            to_move=source.usage*self.moved
-            while to_move>0 and len(tasks)>0:
-                task=tasks.pop(0)
-                source.tasks.remove(task)
-                destination.tasks.append(task)
-                self.migrations+=1
-                to_move-=task.usage
+    def transfer_tasks(self, source, destination, to_move):
+        tasks=source.tasks.copy()
+        tasks.sort(key=attrgetter("usage"))
+        while to_move>0 and len(tasks)>0:
+            task=tasks.pop(0)
+            source.tasks.remove(task)
+            destination.tasks.append(task)
+            self.migrations+=1
+            to_move-=task.usage
 
     def summary(self):
         super().summary()
@@ -45,5 +29,5 @@ class ThirdPolicy(SecondPolicy):
             if processor.usage<self.transfer_treshold:
                 chosen=random.choice(self.processors)
                 if chosen.usage>self.threshold:
-                    self.transfer_tasks(chosen, processor)
+                    self.transfer_tasks(chosen, processor, self.transfer_treshold-processor.usage)
         return super().update()

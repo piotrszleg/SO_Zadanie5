@@ -9,10 +9,9 @@ class OnFindingFailure:
     MIN_USAGE=auto()
 
 class SecondPolicy(Policy):
-    def __init__(self, processors_count, tasks, threshold, process_arguments=(), on_finding_failure=OnFindingFailure.MIN_USAGE, allow_self_check=False, name=None):
+    def __init__(self, processors_count, tasks, threshold, process_arguments=(), on_finding_failure=OnFindingFailure.MIN_USAGE, name=None):
         super().__init__(processors_count, tasks, name=name, process_arguments=process_arguments)
         self.threshold=threshold
-        self.allow_self_check=allow_self_check
         self.on_finding_failure=on_finding_failure
 
     def select_processor(self, task):
@@ -22,9 +21,8 @@ class SecondPolicy(Policy):
         min_usage=(self.processors[task.processor], self.processors[task.processor].usage)
         
         processors=self.processors.copy()
-        if not self.allow_self_check:
-            # don't allow task.processor to be checked
-            del processors[task.processor]
+        # don't check task.processor again
+        del processors[task.processor]
         
         while len(processors)>0:
             processor=random.choice(processors)
